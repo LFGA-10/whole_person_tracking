@@ -35,7 +35,18 @@ class ArcFaceEmbedderONNX:
         self.in_w, self.in_h = input_size
         self.debug = debug
 
-        self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        # This model now typically runs alongside YOLOX and/or OSNet in the
+        # same process (face_tracking.py's BODY_HOLD, person_tracking.py).
+        # Each onnxruntime session defaults to a thread pool sized to all
+        # CPU cores; three such sessions running concurrently massively
+        # oversubscribe the CPU -- measured ~5x slower (1277ms vs 244ms for
+        # one pass of all three models) on a 20-core machine with the
+        # default versus intra_op_num_threads=4. See src/yolox_person.py
+        # and src/body_reid.py, which use the same setting.
+        sess_opts = ort.SessionOptions()
+        sess_opts.intra_op_num_threads = 4
+        sess_opts.inter_op_num_threads = 1
+        self.sess = ort.InferenceSession(model_path, sess_options=sess_opts, providers=["CPUExecutionProvider"])
         self.in_name = self.sess.get_inputs()[0].name
         self.out_name = self.sess.get_outputs()[0].name
 

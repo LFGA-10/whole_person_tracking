@@ -1,11 +1,18 @@
 # src/enroll.py
 """
-Enrollment tool: camera -> Haar detection -> FaceMesh 5pt -> align -> ArcFace embedding
+Enrollment tool: camera -> face detection (YuNet by default, Haar as a
+fallback/comparison option) -> 5pt align -> ArcFace embedding.
 Stores template per identity (mean embedding, L2-normalized).
+
+Switching --detector changes how new crops get aligned, which shifts
+the genuine/impostor distance distributions. Re-run
+`python -m src.evaluate` after enrolling with a different detector --
+an old threshold is not guaranteed to still be a good fit.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from dataclasses import dataclass
@@ -15,7 +22,8 @@ from typing import Dict, List, Optional
 import cv2
 import numpy as np
 
-from .haar_5pt import Haar5ptDetector, align_face_5pt
+from .detector_factory import build_face_detector
+from .haar_5pt import align_face_5pt
 from .embed import ArcFaceEmbedderONNX
 from .cam_config import get_cam_index
 
@@ -109,6 +117,13 @@ def draw_status(frame, name, base_count, new_count, needed, auto, msg=""):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--detector", choices=("yunet", "haar"), default="yunet",
+        help="Face detector used for live alignment (default: yunet).",
+    )
+    args = parser.parse_args()
+
     cfg = EnrollConfig()
     ensure_dirs(cfg)
 
@@ -116,8 +131,12 @@ def main():
     if not name:
         print("No name provided. Exiting.")
         return
+    if name.startswith(("py ", "python ")) or " -m " in name:
+        print(f"'{name}' looks like a command, not a person's name. Exiting without enrolling.")
+        return
 
-    det = Haar5ptDetector(min_size=(70, 70), smooth_alpha=0.80, debug=False)
+    det = build_face_detector(args.detector, min_size=(70, 70), debug=False)
+    print(f"[enroll] using detector: {args.detector}")
     emb = ArcFaceEmbedderONNX(model_path="models/embedder_arcface.onnx", input_size=(112, 112), debug=False)
 
     db = load_db(cfg)

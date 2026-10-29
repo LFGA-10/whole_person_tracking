@@ -806,22 +806,39 @@ def main() -> None:
     parser.add_argument("--camera", type=int, default=get_cam_index())
     parser.add_argument("--width", type=int, default=1280, help="requested capture width")
     parser.add_argument("--height", type=int, default=720, help="requested capture height")
+    parser.add_argument(
+        "--detector", choices=("haar", "yunet"), default="haar",
+        help=(
+            "Default stays 'haar' here because of the far-face Haar-proposal "
+            "+ FaceLandmarker-verify pass tuned in this file (detect_far=True) "
+            "and the DEFAULT_THRESHOLD above, which was calibrated against it. "
+            "'yunet' uses the project-wide default detector instead, for "
+            "comparison -- re-run `python -m src.evaluate` and pass "
+            "--threshold explicitly if you switch, since it was not tuned "
+            "against YuNet's alignment."
+        ),
+    )
     args = parser.parse_args()
 
     db_path = Path(
         "data/db/face_db.npz"
     )
 
-    detector = HaarFaceLandmarker5pt(
-        landmark_model=(
-            "models/face_landmarker.task"
-        ),
-        min_size=(70, 70),
-        debug=False,
-        detect_far=True,
-        far_min_size=(24, 24),
-        num_faces=10,
-    )
+    if args.detector == "yunet":
+        from .detector_factory import build_face_detector
+
+        detector = build_face_detector("yunet", min_size=(24, 24), debug=False)
+    else:
+        detector = HaarFaceLandmarker5pt(
+            landmark_model=(
+                "models/face_landmarker.task"
+            ),
+            min_size=(70, 70),
+            debug=False,
+            detect_far=True,
+            far_min_size=(24, 24),
+            num_faces=10,
+        )
 
     try:
         from .embed import ArcFaceEmbedderONNX
